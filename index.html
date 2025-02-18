@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图片文字提取工具</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f7;
+        }
+
+        .container {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #1d1d1f;
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .upload-area {
+            border: 2px dashed #ccc;
+            padding: 2rem;
+            text-align: center;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            transition: all 0.3s ease;
+        }
+
+        .upload-area:hover, .upload-area.dragover {
+            border-color: #0066cc;
+            background: #f0f0f0;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .button {
+            background: #0066cc;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1rem;
+            margin: 5px;
+        }
+
+        .button:hover {
+            background: #004499;
+        }
+
+        .file-list {
+            margin: 20px 0;
+        }
+
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: #f8f8f8;
+            margin: 5px 0;
+            border-radius: 4px;
+        }
+
+        .result-item {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8f8f8;
+            border-radius: 6px;
+        }
+
+        .result-container {
+            max-height: 350px;
+            overflow-y: auto;
+            background: #f8f8f8;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 15px 0;
+            border: 1px solid #e0e0e0;
+        }
+
+        .result-text {
+            white-space: pre-wrap;
+            margin: 0;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .progress {
+            color: #666;
+            text-align: center;
+            margin: 10px 0;
+        }
+
+        #imagePreview {
+            max-width: 100%;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+
+        .thumbnail-container {
+            width: 100%;
+            overflow-x: auto;
+            white-space: nowrap;
+            padding: 10px 0;
+            margin: 10px 0;
+            -webkit-overflow-scrolling: touch; /* 在iOS上支持平滑滚动 */
+        }
+
+        .thumbnail-list {
+            display: inline-flex;
+            gap: 10px;
+            padding: 0 10px;
+        }
+
+        .thumbnail-item {
+            position: relative;
+            width: 100px;
+            height: 100px;
+            flex-shrink: 0;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .thumbnail-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .thumbnail-item .remove-button {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.5);
+            color: white;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            padding: 0;
+            line-height: 1;
+        }
+
+        .thumbnail-item .remove-button:hover {
+            background: rgba(0,0,0,0.7);
+        }
+
+        .button-container {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        /* 美化滚动条（针对 Webkit 浏览器） */
+        .result-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .result-container::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+
+        .result-container::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 4px;
+        }
+
+        .result-container::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>图片文字提取工具</h1>
+        <div class="upload-area" id="dropZone">
+            <input type="file" id="fileInput" accept="image/*" multiple>
+            <p>拖拽图片到这里，或者</p>
+            <button class="button" onclick="document.getElementById('fileInput').click()">
+                选择图片
+            </button>
+        </div>
+        <div id="fileList"></div>
+        <div id="progress" class="progress"></div>
+        <div id="results"></div>
+    </div>
+
+    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const fileList = document.getElementById('fileList');
+        const progress = document.getElementById('progress');
+        const results = document.getElementById('results');
+        let worker = null;
+        let isWorkerReady = false;
+        let selectedFiles = [];
+
+        // 初始化 worker
+        async function initWorker() {
+            try {
+                progress.textContent = '正在初始化...';
+                worker = await Tesseract.createWorker('chi_sim+eng');
+                isWorkerReady = true;
+                progress.textContent = '初始化完成，可以开始识别图片';
+            } catch (error) {
+                console.error('Worker初始化失败:', error);
+                progress.textContent = '初始化失败，请刷新页面重试';
+            }
+        }
+
+        // 更新文件列表
+        function updateFileList() {
+            fileList.innerHTML = '';
+            if (selectedFiles.length > 0) {
+                // 创建缩略图容器
+                const thumbnailContainer = document.createElement('div');
+                thumbnailContainer.className = 'thumbnail-container';
+                const thumbnailList = document.createElement('div');
+                thumbnailList.className = 'thumbnail-list';
+
+                // 为每个文件创建缩略图
+                selectedFiles.forEach((file, index) => {
+                    const thumbnailItem = document.createElement('div');
+                    thumbnailItem.className = 'thumbnail-item';
+
+                    // 创建图片预览
+                    const img = document.createElement('img');
+                    
+                    // 使用 FileReader 读取图片
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        img.src = e.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                    
+                    // 创建删除按钮
+                    const removeButton = document.createElement('button');
+                    removeButton.className = 'remove-button';
+                    removeButton.innerHTML = '×';
+                    removeButton.onclick = (e) => {
+                        e.stopPropagation();
+                        removeFile(index);
+                    };
+
+                    thumbnailItem.appendChild(img);
+                    thumbnailItem.appendChild(removeButton);
+                    thumbnailList.appendChild(thumbnailItem);
+                });
+
+                thumbnailContainer.appendChild(thumbnailList);
+                fileList.appendChild(thumbnailContainer);
+
+                // 添加按钮容器
+                const buttonContainer = document.createElement('div');
+                buttonContainer.className = 'button-container';
+
+                // 添加开始按钮
+                const startButton = document.createElement('button');
+                startButton.className = 'button';
+                startButton.textContent = '开始提取文字';
+                startButton.onclick = processAllFiles;
+
+                buttonContainer.appendChild(startButton);
+                fileList.appendChild(buttonContainer);
+            }
+        }
+
+        // 删除文件
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            updateFileList();
+        }
+
+        // 处理所有文件
+        async function processAllFiles() {
+            if (!isWorkerReady) {
+                progress.textContent = '请等待初始化完成...';
+                return;
+            }
+
+            results.innerHTML = '';
+            try {
+                let allText = '';        // 用于显示的文本（包含文件名）
+                let pureText = '';       // 用于复制的纯文本（不包含文件名）
+                
+                for (let i = 0; i < selectedFiles.length; i++) {
+                    const file = selectedFiles[i];
+                    progress.textContent = `正在处理第 ${i + 1}/${selectedFiles.length} 个文件: ${file.name}`;
+                    
+                    // 识别文字
+                    const ret = await worker.recognize(file);
+                    
+                    // 添加到显示文本（包含文件名）
+                    allText += `【${file.name}】\n${ret.data.text}\n\n`;
+                    // 添加到复制文本（只包含识别内容）
+                    pureText += `${ret.data.text}\n\n`;
+                }
+
+                // 创建外层容器
+                const resultContainer = document.createElement('div');
+                resultContainer.className = 'result-container';
+                
+                // 创建文本显示区域
+                const textDiv = document.createElement('div');
+                textDiv.className = 'result-text';
+                textDiv.textContent = allText;
+                resultContainer.appendChild(textDiv);
+                
+                // 将结果容器添加到results
+                results.appendChild(resultContainer);
+
+                // 创建按钮容器（放在滚动区域外部）
+                const buttonContainer = document.createElement('div');
+                buttonContainer.className = 'button-container';
+
+                // 添加复制按钮
+                const copyButton = document.createElement('button');
+                copyButton.className = 'button';
+                copyButton.textContent = '复制全部文字';
+                copyButton.onclick = () => {
+                    navigator.clipboard.writeText(pureText)
+                        .then(() => {
+                            copyButton.textContent = '已复制！';
+                            setTimeout(() => copyButton.textContent = '复制全部文字', 2000);
+                        })
+                        .catch(err => {
+                            console.error('复制失败:', err);
+                            copyButton.textContent = '复制失败';
+                        });
+                };
+
+                buttonContainer.appendChild(copyButton);
+                results.appendChild(buttonContainer);  // 按钮容器直接添加到 results
+                progress.textContent = '处理完成';
+
+            } catch (error) {
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'result-item';
+                errorDiv.style.color = 'red';
+                errorDiv.textContent = `处理过程中出错: ${error.message}`;
+                results.appendChild(errorDiv);
+                progress.textContent = '处理出错';
+            }
+        }
+
+        // 文件选择处理
+        fileInput.addEventListener('change', (e) => {
+            selectedFiles = Array.from(e.target.files);
+            updateFileList();
+        });
+
+        // 拖放处理
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            selectedFiles = Array.from(e.dataTransfer.files);
+            updateFileList();
+        });
+
+        // 页面卸载时清理
+        window.addEventListener('beforeunload', async () => {
+            if (worker) {
+                await worker.terminate();
+            }
+        });
+
+        // 初始化
+        initWorker();
+    </script>
+</body>
+</html> 
