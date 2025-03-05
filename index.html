@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>图片文字提取工具</title>
+    <title data-translate="page_title">图片文字提取工具</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
@@ -57,6 +57,12 @@
 
         .button:hover {
             background: #004499;
+        }
+
+        .button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+            opacity: 0.7;
         }
 
         .file-list {
@@ -151,12 +157,17 @@
             color: white;
             border: none;
             cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 12px;
-            padding: 0;
-            line-height: 1;
+            padding: 4px;
+            display: grid;
+            place-items: center;
+        }
+
+        .remove-icon {
+            width: 12px;
+            height: 12px;
+            stroke: white;
+            stroke-width: 2;
+            stroke-linecap: round;
         }
 
         .thumbnail-item .remove-button:hover {
@@ -191,21 +202,29 @@
     </style>
 </head>
 <body>
+    <!-- 语言选择器 -->
+    <select id="languageSelector" onchange="changeLanguage(this.value)">
+        <option value="zh">中文</option>
+        <option value="en">English</option>
+    </select>
+
     <div class="container">
-        <h1>图片文字提取工具</h1>
+        <h1 data-translate="welcome">图片文字提取工具</h1>
         <div class="upload-area" id="dropZone">
             <input type="file" id="fileInput" accept="image/*" multiple>
-            <p>拖拽图片到这里，或者</p>
-            <button class="button" onclick="document.getElementById('fileInput').click()">
+            <p data-translate="welcome_p">拖拽图片到这里，或者</p>
+            <button class="button" data-translate="select_image" onclick="document.getElementById('fileInput').click()" disabled id="selectButton">
                 选择图片
             </button>
         </div>
         <div id="fileList"></div>
-        <div id="progress" class="progress"></div>
+        <div id="progress" class="progress" data-translate="initializing"></div>
         <div id="results"></div>
     </div>
 
     <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+    <script src="translations.js"></script>
+    <script src="main.js"></script>
     <script>
         const dropZone = document.getElementById('dropZone');
         const fileInput = document.getElementById('fileInput');
@@ -219,13 +238,14 @@
         // 初始化 worker
         async function initWorker() {
             try {
-                progress.textContent = '正在初始化...';
+                updateProgress('initializing');
                 worker = await Tesseract.createWorker('chi_sim+eng');
                 isWorkerReady = true;
-                progress.textContent = '初始化完成，可以开始识别图片';
+                document.getElementById('selectButton').disabled = false;
+                updateProgress('init_complete');
             } catch (error) {
                 console.error('Worker初始化失败:', error);
-                progress.textContent = '初始化失败，请刷新页面重试';
+                updateProgress('init_failed');
             }
         }
 
@@ -257,7 +277,13 @@
                     // 创建删除按钮
                     const removeButton = document.createElement('button');
                     removeButton.className = 'remove-button';
-                    removeButton.innerHTML = '×';
+                    // 创建 SVG X 图标
+                    removeButton.innerHTML = `
+                        <svg class="remove-icon" viewBox="0 0 24 24">
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                        </svg>
+                    `;
                     removeButton.onclick = (e) => {
                         e.stopPropagation();
                         removeFile(index);
@@ -278,7 +304,8 @@
                 // 添加开始按钮
                 const startButton = document.createElement('button');
                 startButton.className = 'button';
-                startButton.textContent = '开始提取文字';
+                startButton.setAttribute('data-translate', 'start_extract');
+                startButton.textContent = translations[document.getElementById('languageSelector').value].start_extract;
                 startButton.onclick = processAllFiles;
 
                 buttonContainer.appendChild(startButton);
@@ -295,7 +322,7 @@
         // 处理所有文件
         async function processAllFiles() {
             if (!isWorkerReady) {
-                progress.textContent = '请等待初始化完成...';
+                updateProgress('wait_init');
                 return;
             }
 
@@ -306,14 +333,19 @@
                 
                 for (let i = 0; i < selectedFiles.length; i++) {
                     const file = selectedFiles[i];
-                    progress.textContent = `正在处理第 ${i + 1}/${selectedFiles.length} 个文件: ${file.name}`;
+                    updateProgress('processing', {
+                        current: i + 1,
+                        total: selectedFiles.length,
+                        filename: file.name
+                    });
                     
                     // 识别文字
                     const ret = await worker.recognize(file);
                     
-                    // 添加到显示文本（包含文件名）
-                    allText += `【${file.name}】\n${ret.data.text}\n\n`;
-                    // 添加到复制文本（只包含识别内容）
+                    // 修改文件名前缀的显示方式
+                    const currentLang = document.getElementById('languageSelector').value;
+                    const fileNamePrefix = translations[currentLang].file_name_prefix.replace('{filename}', file.name);
+                    allText += `${fileNamePrefix}\n${ret.data.text}\n\n`;
                     pureText += `${ret.data.text}\n\n`;
                 }
 
@@ -337,41 +369,57 @@
                 // 添加复制按钮
                 const copyButton = document.createElement('button');
                 copyButton.className = 'button';
-                copyButton.textContent = '复制全部文字';
+                copyButton.setAttribute('data-translate', 'copy_text');
+                const currentLang = document.getElementById('languageSelector').value;
+                copyButton.textContent = translations[currentLang].copy_text;
                 copyButton.onclick = () => {
                     navigator.clipboard.writeText(pureText)
                         .then(() => {
-                            copyButton.textContent = '已复制！';
-                            setTimeout(() => copyButton.textContent = '复制全部文字', 2000);
+                            copyButton.setAttribute('data-translate', 'copied');
+                            copyButton.textContent = translations[currentLang].copied;
+                            setTimeout(() => {
+                                copyButton.setAttribute('data-translate', 'copy_text');
+                                copyButton.textContent = translations[currentLang].copy_text;
+                            }, 2000);
                         })
                         .catch(err => {
                             console.error('复制失败:', err);
-                            copyButton.textContent = '复制失败';
+                            copyButton.setAttribute('data-translate', 'copy_failed');
+                            copyButton.textContent = translations[currentLang].copy_failed;
                         });
                 };
 
                 buttonContainer.appendChild(copyButton);
                 results.appendChild(buttonContainer);  // 按钮容器直接添加到 results
-                progress.textContent = '处理完成';
+                updateProgress('processing_complete');
 
             } catch (error) {
                 const errorDiv = document.createElement('div');
                 errorDiv.className = 'result-item';
                 errorDiv.style.color = 'red';
-                errorDiv.textContent = `处理过程中出错: ${error.message}`;
+                const currentLang = document.getElementById('languageSelector').value;
+                errorDiv.textContent = translations[currentLang].error_prefix + error.message;
                 results.appendChild(errorDiv);
-                progress.textContent = '处理出错';
+                updateProgress('processing_error', {
+                    error: error.message
+                });
             }
         }
 
         // 文件选择处理
         fileInput.addEventListener('change', (e) => {
+            if (!isWorkerReady) {
+                return;
+            }
             selectedFiles = Array.from(e.target.files);
             updateFileList();
         });
 
         // 拖放处理
         dropZone.addEventListener('dragover', (e) => {
+            if (!isWorkerReady) {
+                return;
+            }
             e.preventDefault();
             dropZone.classList.add('dragover');
         });
@@ -381,6 +429,9 @@
         });
 
         dropZone.addEventListener('drop', (e) => {
+            if (!isWorkerReady) {
+                return;
+            }
             e.preventDefault();
             dropZone.classList.remove('dragover');
             selectedFiles = Array.from(e.dataTransfer.files);
